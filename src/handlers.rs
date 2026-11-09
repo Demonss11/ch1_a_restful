@@ -11,8 +11,6 @@ use crate::error::AppError;
 use crate::model::*;
 use crate::profile;
 
-/// Единый хелпер для problem+json-ответов (405 и т.п.): тот же формат,
-/// что и у `AppError::into_response`, включая `_links: [entry]`.
 fn problem_json(status: u16, title: &str, detail: String) -> Response {
     let body = json!({
         "type": format!("https://demo.dev/err/{}", title.to_lowercase().replace(' ', "-")),
@@ -23,7 +21,10 @@ fn problem_json(status: u16, title: &str, detail: String) -> Response {
     });
     (
         StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
-        [(header::CONTENT_TYPE, HeaderValue::from_static("application/problem+json"))],
+        [(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("application/problem+json"),
+        )],
         Json(body),
     )
         .into_response()
@@ -41,9 +42,7 @@ pub async fn root() -> impl IntoResponse {
     }))
 }
 
-/// Семантический профиль API. Возвращается с собственным медиатипом,
-/// чтобы клиент мог отличить его от «обычных» JSON-ответов и привязаться
-/// именно к нему (а не к схеме объекта).
+/// Семантический профиль API.
 pub async fn get_profile() -> Response {
     let mut headers = HeaderMap::new();
     headers.insert(
@@ -60,7 +59,6 @@ pub async fn list_programs(State(st): State<AppState>) -> impl IntoResponse {
         .iter()
         .filter_map(|id| g.programs.get(id))
         .map(|p| {
-            // item самодостаточен: slug, title, state + ссылки self / current-build (ФТ-3.3).
             let cur = p.current.and_then(|id| g.builds.get(&id));
             let mut links = vec![json!({
                 "rel": "self", "method": "GET", "href": format!("/programs/{}", p.slug)
@@ -141,7 +139,6 @@ pub async fn create_build(
     Path(slug): Path<String>,
     payload: Result<Json<CreateBuildReq>, JsonRejection>,
 ) -> Result<Response, AppError> {
-    // Единый формат ошибок: реджект Json-экстрактора конвертируем в AppError.
     let Json(req) = payload.map_err(|e| AppError::BadRequest(e.body_text()))?;
     let source = req.source.trim().to_string();
     if source.is_empty() {
@@ -158,7 +155,6 @@ pub async fn create_build(
                 resource: "Program",
                 id: slug.clone(),
             })?;
-        // n — следующий порядковый номер в рамках программы (ФТ-7.3).
         let bn = g.builds.values().filter(|b| b.program == pid).count() as u32 + 1;
         let b = Build {
             id: Uuid::new_v4(),
@@ -170,7 +166,6 @@ pub async fn create_build(
             artifact: None,
         };
         g.builds.insert(b.id, b.clone());
-        // current переключается немедленно (ФТ-7.4), source программы обновляется.
         if let Some(p) = g.programs.get_mut(&pid) {
             p.current = Some(b.id);
             p.source = source;
@@ -184,12 +179,7 @@ pub async fn create_build(
         .map_err(|_| AppError::Internal)?;
 
     let location = format!("/builds/{}", build.id);
-    Ok((
-        StatusCode::CREATED,
-        [("location", location)],
-        Json(build),
-    )
-        .into_response())
+    Ok((StatusCode::CREATED, [("location", location)], Json(build)).into_response())
 }
 
 pub async fn get_build(
@@ -216,7 +206,6 @@ pub async fn create_program(
     State(st): State<AppState>,
     payload: Result<Json<CreateProgramReq>, JsonRejection>,
 ) -> Result<Response, AppError> {
-    // Единый формат ошибок: реджект Json-экстрактора конвертируем в AppError.
     let Json(req) = payload.map_err(|e| AppError::BadRequest(e.body_text()))?;
 
     validate_slug(&req.slug)?;
@@ -242,8 +231,6 @@ pub async fn create_program(
         )));
     }
     let id = Uuid::new_v4();
-    // Атомарно (под одним write-lock): программа + первая сборка в queued,
-    // current сразу указывает на неё (ФТ-4.3, ФТ-4.4).
     let build_id = Uuid::new_v4();
     let build = Build {
         id: build_id,

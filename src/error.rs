@@ -40,7 +40,6 @@ impl IntoResponse for AppError {
             ]
         });
 
-        // Единый формат ошибок: application/problem+json (НФТ-1, ФТ-10.3).
         (
             status,
             [("content-type", "application/problem+json")],

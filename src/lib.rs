@@ -1,4 +1,4 @@
-//! Minimal REST API prototype (ch1_a): simple explicit routes, extensible architecture.
+//! REST API prototype
 
 mod error;
 mod handlers;
@@ -18,7 +18,7 @@ use handlers::*;
 async fn compiler(mut rx: mpsc::Receiver<BuildTask>, st: AppState) {
     while let Some(task) = rx.recv().await {
         let mut g = st.store.write().await;
-        // Пропускаем задачи, чья сборка уже не в queued (ФТ-9.2).
+
         let queued = g
             .builds
             .get(&task.build_id)
@@ -27,7 +27,7 @@ async fn compiler(mut rx: mpsc::Receiver<BuildTask>, st: AppState) {
         if !queued {
             continue;
         }
-        // slug берём из программы (Build.slug удалён, ФТ-11.1).
+
         let pid = g.builds[&task.build_id].program;
         let slug = g
             .programs

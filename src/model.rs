@@ -74,7 +74,6 @@ pub struct ProgramRep {
 #[derive(Serialize)]
 pub struct BuildRep {
     pub id: Uuid,
-    /// Слаг программы — гипермедиа-ссылка на неё (не голый UUID).
     pub program: String,
     pub n: u32,
     pub state: BuildState,
@@ -144,8 +143,7 @@ pub fn program_rep(store: &Store, p: &Program) -> ProgramRep {
     }
 }
 
-/// Репрезентация сборки. Требует слаг программы — сборка хранит только UUID,
-/// а наружу отдаётся гипермедиа-ссылка (program = slug, rel="program" = href).
+/// Репрезентация сборки.
 pub fn build_rep(store: &Store, b: &Build) -> BuildRep {
     let slug = store
         .programs
