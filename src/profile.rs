@@ -15,7 +15,7 @@ pub const MEDIA_TYPE: &str = "application/vnd.risk-compiler.v1+profile+json";
 pub const PROFILE_DOCUMENT: &str = r#"{
   "profile": "risk-compiler.v1",
   "version": "1.0.0",
-  "revision": "2024-01-01",
+  "revision": "2026-11-09",
   "description": "Semantic profile for risk-compiler-a. Defines all property names, link relations, actions, and error details. Clients SHOULD bind to this profile together with HTTP and the media type, rather than to specific URLs or object schemas.",
   "mediaType": "application/vnd.risk-compiler.v1+json",
   "entryPoint": "/",
@@ -23,7 +23,7 @@ pub const PROFILE_DOCUMENT: &str = r#"{
 
   "resources": {
     "program": {
-      "description": "A named compilation unit.",
+      "description": "A named risk model: the primary unit of work. Owns its build history.",
       "href": "/programs/{slug}",
       "properties": {
         "slug": {
@@ -38,6 +38,12 @@ pub const PROFILE_DOCUMENT: &str = r#"{
           "description": "Human-readable name of the program.",
           "minLength": 1,
           "maxLength": 200,
+          "required": true
+        },
+        "source": {
+          "type": "string",
+          "description": "Last source bundle submitted for compilation (opaque string: path, URI, hash). Validated only for non-emptiness.",
+          "minLength": 1,
           "required": true
         },
         "current": {
@@ -55,7 +61,7 @@ pub const PROFILE_DOCUMENT: &str = r#"{
       }
     },
     "build": {
-      "description": "A single compilation attempt of a program.",
+      "description": "A single compilation attempt of a program (evidence layer). Belongs to exactly one program.",
       "href": "/builds/{id}",
       "properties": {
         "id": {
@@ -66,13 +72,13 @@ pub const PROFILE_DOCUMENT: &str = r#"{
         },
         "program": {
           "type": "string",
-          "description": "Reference (href) to the program this build belongs to.",
+          "description": "Slug of the program this build belongs to (hypermedia reference, not a bare UUID).",
           "required": true
         },
         "n": {
           "type": "integer",
           "minimum": 1,
-          "description": "Sequential build number within the program (starts at 1).",
+          "description": "Sequential build number within the program (starts at 1, unique per program).",
           "required": true
         },
         "state": {
@@ -93,6 +99,47 @@ pub const PROFILE_DOCUMENT: &str = r#"{
           "required": false
         }
       }
+    },
+    "ProgramCollection": {
+      "description": "List of programs in creation order.",
+      "href": "/programs",
+      "properties": {
+        "total": {"type": "integer", "required": true},
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["slug", "title", "state", "_links"],
+            "properties": {
+              "slug": {"type": "string"},
+              "title": {"type": "string"},
+              "state": {"type": ["string", "null"], "enum": ["queued", "ready", "failed", null]}
+            }
+          }
+        },
+        "_links": {"type": "array", "required": true}
+      }
+    },
+    "BuildCollection": {
+      "description": "Full audit trail of builds for a program, sorted by n ascending.",
+      "href": "/programs/{slug}/builds",
+      "properties": {
+        "slug": {"type": "string", "required": true},
+        "total": {"type": "integer", "required": true},
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "n", "state", "_links"],
+            "properties": {
+              "id": {"type": "string", "format": "uuid"},
+              "n": {"type": "integer", "minimum": 1},
+              "state": {"type": "string", "enum": ["queued", "ready", "failed"]}
+            }
+          }
+        },
+        "_links": {"type": "array", "required": true}
+      }
     }
   },
 
@@ -109,34 +156,39 @@ pub const PROFILE_DOCUMENT: &str = r#"{
 
   "linkRelations": {
     "self":          "Canonical URI of the current resource.",
-    "entry":         "API entry point.",
+    "entry":         "API entry point (/).",
     "profile":       "This semantic profile document.",
     "programs":      "Collection of all programs.",
     "program":       "Program resource.",
     "builds":        "Collection of builds for a program.",
-    "build":         "Action: create a new build for a program (POST).",
-    "current-build": "Currently active build of a program (only present when program.current is not null)."
+    "build":         "Build resource (never an action relation).",
+    "current-build": "Currently active build of a program (only present when program.current is not null).",
+    "create-program": "Action: create a program (POST /programs). Lives on the collection, not the root.",
+    "create-build":   "Action: rebuild a program (POST /programs/{slug}/builds)."
   },
 
   "actions": {
     "list-programs": {
       "method": "GET",
       "href": "/programs",
-      "description": "List all programs.",
+      "description": "List all programs in creation order.",
+      "contentType": null,
       "input": null,
       "responses": {"200": "ProgramCollection"}
     },
     "create-program": {
       "method": "POST",
       "href": "/programs",
-      "description": "Create a new program.",
+      "description": "Create a new program. Atomically creates the program and its first build (state queued); program.current points to it immediately.",
       "contentType": "application/json",
       "input": {
         "type": "object",
-        "required": ["slug", "title"],
+        "required": ["slug", "title", "source"],
+        "additionalProperties": false,
         "properties": {
-          "slug":  {"type": "string", "pattern": "^[A-Za-z0-9_-]+$", "maxLength": 128},
-          "title": {"type": "string", "minLength": 1, "maxLength": 200}
+          "slug":   {"type": "string", "pattern": "^[A-Za-z0-9_-]+$", "maxLength": 128},
+          "title":  {"type": "string", "minLength": 1, "maxLength": 200},
+          "source": {"type": "string", "minLength": 1}
         }
       },
       "responses": {
@@ -149,28 +201,38 @@ pub const PROFILE_DOCUMENT: &str = r#"{
       "method": "GET",
       "href": "/programs/{slug}",
       "description": "Read a single program.",
+      "contentType": null,
       "input": null,
       "responses": {"200": "Program", "404": "NotFound"}
     },
     "list-builds": {
       "method": "GET",
       "href": "/programs/{slug}/builds",
-      "description": "List builds for a program.",
+      "description": "List all builds for a program (audit trail), sorted by n ascending.",
+      "contentType": null,
       "input": null,
       "responses": {"200": "BuildCollection", "404": "NotFound"}
     },
     "create-build": {
       "method": "POST",
       "href": "/programs/{slug}/builds",
-      "description": "Create a new build for a program. No request body is required.",
-      "contentType": null,
-      "input": {"type": "object", "additionalProperties": false},
-      "responses": {"201": "Build", "404": "NotFound"}
+      "description": "Rebuild a program from a new source. Program.current switches to the new build (state queued) immediately.",
+      "contentType": "application/json",
+      "input": {
+        "type": "object",
+        "required": ["source"],
+        "additionalProperties": false,
+        "properties": {
+          "source": {"type": "string", "minLength": 1}
+        }
+      },
+      "responses": {"201": "Build", "400": "BadRequest", "404": "NotFound"}
     },
     "get-build": {
       "method": "GET",
       "href": "/builds/{id}",
       "description": "Read a single build.",
+      "contentType": null,
       "input": null,
       "responses": {"200": "Build", "404": "NotFound"}
     }

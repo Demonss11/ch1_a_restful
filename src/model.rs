@@ -33,6 +33,7 @@ pub struct Link {
 pub struct Program {
     pub slug: String,
     pub title: String,
+    pub source: String,
     pub current: Option<Uuid>,
 }
 
@@ -40,14 +41,20 @@ pub struct Program {
 pub struct CreateProgramReq {
     pub slug: String,
     pub title: String,
+    pub source: String,
+}
+
+#[derive(Deserialize)]
+pub struct CreateBuildReq {
+    pub source: String,
 }
 
 #[derive(Clone)]
 pub struct Build {
     pub id: Uuid,
     pub program: Uuid,
-    pub slug: String,
     pub n: u32,
+    pub source: String,
     pub state: BuildState,
     pub log: Vec<String>,
     pub artifact: Option<String>,
@@ -57,6 +64,7 @@ pub struct Build {
 pub struct ProgramRep {
     pub slug: String,
     pub title: String,
+    pub source: String,
     pub current: Option<Uuid>,
     pub state: Option<BuildState>,
     #[serde(rename = "_links")]
@@ -66,7 +74,9 @@ pub struct ProgramRep {
 #[derive(Serialize)]
 pub struct BuildRep {
     pub id: Uuid,
+    /// Слаг программы — гипермедиа-ссылка на неё (не голый UUID).
     pub program: String,
+    pub n: u32,
     pub state: BuildState,
     pub artifact: Option<String>,
     pub log: Vec<String>,
@@ -107,7 +117,7 @@ pub fn program_rep(store: &Store, p: &Program) -> ProgramRep {
             href: format!("/programs/{}/builds", p.slug),
         },
         Link {
-            rel: "build",
+            rel: "create-build",
             method: "POST",
             href: format!("/programs/{}/builds", p.slug),
         },
@@ -127,16 +137,25 @@ pub fn program_rep(store: &Store, p: &Program) -> ProgramRep {
     ProgramRep {
         slug: p.slug.clone(),
         title: p.title.clone(),
+        source: p.source.clone(),
         current: p.current,
         state: cur.map(|b| b.state),
         links,
     }
 }
 
-pub fn build_rep(b: &Build) -> BuildRep {
+/// Репрезентация сборки. Требует слаг программы — сборка хранит только UUID,
+/// а наружу отдаётся гипермедиа-ссылка (program = slug, rel="program" = href).
+pub fn build_rep(store: &Store, b: &Build) -> BuildRep {
+    let slug = store
+        .programs
+        .get(&b.program)
+        .map(|p| p.slug.clone())
+        .unwrap_or_default();
     BuildRep {
         id: b.id,
-        program: format!("/programs/{}", b.slug),
+        program: slug.clone(),
+        n: b.n,
         state: b.state,
         artifact: b.artifact.clone(),
         log: b.log.clone(),
@@ -149,7 +168,7 @@ pub fn build_rep(b: &Build) -> BuildRep {
             Link {
                 rel: "program",
                 method: "GET",
-                href: format!("/programs/{}", b.slug),
+                href: format!("/programs/{slug}"),
             },
             Link {
                 rel: "profile",
