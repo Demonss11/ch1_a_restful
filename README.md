@@ -28,12 +28,13 @@
 
 | Метод | Путь | Назначение |
 |---|---|---|
-| GET | `/` | Точка входа |
+| GET | `/` | Точка входа (без `create-program`: действие живёт на коллекции) |
 | GET | `/profile` | Семантический профиль API |
-| GET | `/programs` | Список программ |
+| GET | `/programs` | Список программ (`_links` содержит `create-program`) |
+| POST | `/programs` | Создать программу `{slug, title, source}` — атомарно с первой сборкой `queued` |
 | GET | `/programs/{slug}` | Программа |
-| GET | `/programs/{slug}/builds` | История сборок |
-| POST | `/programs/{slug}/builds` | Создать сборку |
+| GET | `/programs/{slug}/builds` | История сборок (audit trail, сортировка по `n`) |
+| POST | `/programs/{slug}/builds` | Пересобрать `{source}` — `current` переключается немедленно |
 | GET | `/builds/{id}` | Состояние/лог сборки |
 
 Расширение — добавлением явных маршрутов (например, `POST /builds/{id}/cancel`,
@@ -53,13 +54,15 @@
   "resources":  { "program": {...}, "build": {...} },
   "enums":      { "buildState": { "values": ["queued","ready","failed"], "transitions": {...} } },
   "linkRelations": {
-    "self":          "Canonical URI of the current resource.",
-    "profile":       "This semantic profile document.",
-    "programs":      "Collection of all programs.",
-    "program":       "Program resource.",
-    "builds":        "Collection of builds for a program.",
-    "build":         "Action: create a new build for a program (POST).",
-    "current-build": "Currently active build of a program."
+    "self":           "Canonical URI of the current resource.",
+    "profile":        "This semantic profile document.",
+    "programs":       "Collection of all programs.",
+    "program":        "Program resource.",
+    "builds":         "Collection of builds for a program.",
+    "build":          "Build resource (never an action relation).",
+    "current-build":  "Currently active build of a program.",
+    "create-program": "Action: create a program (POST /programs).",
+    "create-build":   "Action: rebuild a program (POST /programs/{slug}/builds)."
   },
   "actions":   { "create-program": {...}, "create-build": {...}, ... },
   "errors":    { "contentType": "application/problem+json", "statuses": {...} },
@@ -69,9 +72,9 @@
 
 Профиль объявляется в `_links` каждого ответа (`rel: "profile"`), поэтому
 M2M-клиент может обнаружить его на любом шаге навигации и один раз прочитать
-семантику всех полей (`slug`, `title`, `n`, `state`, `artifact`) и действий
-(`build` — это `POST` без тела; `current-build` появляется только при
-`current != null`).
+семантику всех полей (`slug`, `title`, `source`, `n`, `state`, `artifact`) и
+действий (`create-build` — это `POST` с телом `{source}`; `current-build`
+появляется только при `current != null`).
 
 ## Запуск
 
