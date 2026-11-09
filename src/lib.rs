@@ -18,13 +18,24 @@ use handlers::*;
 async fn compiler(mut rx: mpsc::Receiver<BuildTask>, st: AppState) {
     while let Some(task) = rx.recv().await {
         let mut g = st.store.write().await;
-        let Some(b) = g.builds.get_mut(&task.build_id) else {
-            continue;
-        };
-        if b.state != BuildState::Queued {
+        // Пропускаем задачи, чья сборка уже не в queued (ФТ-9.2).
+        let queued = g
+            .builds
+            .get(&task.build_id)
+            .map(|b| b.state == BuildState::Queued)
+            .unwrap_or(false);
+        if !queued {
             continue;
         }
-        let artifact = compile_artifact(&b.id, &b.slug, b.n);
+        // slug берём из программы (Build.slug удалён, ФТ-11.1).
+        let pid = g.builds[&task.build_id].program;
+        let slug = g
+            .programs
+            .get(&pid)
+            .map(|p| p.slug.clone())
+            .unwrap_or_default();
+        let b = g.builds.get_mut(&task.build_id).expect("checked above");
+        let artifact = compile_artifact(&b.id, &slug, b.n);
         b.log.push(format!("compiled artifact {artifact}"));
         b.artifact = Some(artifact);
         b.state = BuildState::Ready;
