@@ -1,0 +1,20 @@
+[package]
+name = "risk-compiler-a"
+version = "0.1.0"
+edition = "2021"
+description = "Minimal REST API prototype (ch1_a): simple routes, extensible architecture"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
+
+[dependencies]
+axum = "0.8"
+tokio = { version = "1.40", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+uuid = { version = "1.10", features = ["v4", "serde"] }
+http-body-util = "0.1"
+tower = { version = "0.5", features = ["util"] }
